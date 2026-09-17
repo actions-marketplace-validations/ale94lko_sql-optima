@@ -1,0 +1,97 @@
+name: Test SQL Optima Action
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  repository_dispatch:
+    types: [analyze-sql]
+  workflow_dispatch:
+
+jobs:
+  test-postgres-analysis:
+    name: Run SQL Optima against PostgreSQL
+    runs-on: ubuntu-latest
+
+    # Ephemeral PostgreSQL container service for dynamic EXPLAIN checks
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: test_db
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: root
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout repository code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js environment
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies and build dist
+        run: |
+          npm ci
+          npm run build
+
+      # Step 1: Initialize dummy tables in PostgreSQL service
+      - name: Prepare database schema
+        env:
+          PGPASSWORD: root
+        run: |
+          psql -h localhost -U postgres -d test_db -c "
+            CREATE TABLE IF NOT EXISTS users (
+              id SERIAL PRIMARY KEY,
+              email VARCHAR(255) NOT NULL,
+              created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE IF NOT EXISTS orders (
+              id SERIAL PRIMARY KEY,
+              user_id INT,
+              amount DECIMAL(10, 2)
+            );
+            INSERT INTO users (email) SELECT 'user_' || generate_series(1, 100) || '@example.com';
+            INSERT INTO orders (user_id, amount) SELECT (random() * 99 + 1)::int, random() * 100 FROM generate_series(1, 500);
+          "
+
+      # Step 2: Test Action using direct workflow inputs
+      - name: Run SQL Optima (Direct Inputs)
+        uses: ./
+        with:
+          engine: 'postgres'
+          db_host: 'localhost'
+          db_port: '5432'
+          db_name: 'test_db'
+          db_user: 'postgres'
+          db_password: 'root'
+          sql_content: |
+            CREATE TABLE bad_table (
+              name VARCHAR(100)
+            );
+            SELECT * FROM orders WHERE user_id = 5;
+
+      # Step 3: Test Action using repository_dispatch client_payload fallback
+      - name: Run SQL Optima (API Payload Simulation)
+        if: github.event_name == 'repository_dispatch'
+        uses: ./
+        with:
+          engine: 'postgres'
+          db_host: 'localhost'
+          db_port: '5432'
+          db_name: 'test_db'
+          db_user: 'postgres'
+          db_password: 'root'
+          sql_content: ${{ github.event.client_payload.sql_code }}
