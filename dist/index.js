@@ -45265,6 +45265,34 @@ function analyzeStaticSQL(sqlContent, engine = 'postgres') {
 }
 
 /**
+ * Normalizes node-sql-parser column identifiers to a plain string.
+ * @param {unknown} column
+ * @returns {string|null}
+ */
+function getColumnName(column) {
+  if (typeof column === 'string') {
+    return column;
+  }
+
+  if (column && typeof column === 'object') {
+    if (typeof column.expr?.value === 'string') {
+      return column.expr.value;
+    }
+    if (typeof column.value === 'string') {
+      return column.value;
+    }
+    if (typeof column.column === 'string') {
+      return column.column;
+    }
+    if (typeof column.column?.expr?.value === 'string') {
+      return column.column.expr.value;
+    }
+  }
+
+  return null;
+}
+
+/**
  * Inspects CREATE TABLE statements for structural best practices.
  */
 function analyzeCreateTable(stmt, issues) {
@@ -45276,11 +45304,15 @@ function analyzeCreateTable(stmt, issues) {
 
   definitions.forEach((def) => {
     // 1. Check for Primary Keys defined as column constraints or table constraints
-    if (def.resource === 'constraint' && def.constraint_type === 'primary key') {
+    if (def.resource === 'constraint' && def.constraint_type?.toLowerCase() === 'primary key') {
       hasPrimaryKey = true;
     }
 
     if (def.resource === 'column') {
+      if (typeof def.primary_key === 'string' && def.primary_key.toLowerCase().includes('primary')) {
+        hasPrimaryKey = true;
+      }
+
       const isPkColumn = def.definition?.constraints?.some(
         (c) => c.constraint_type?.toLowerCase() === 'primary key',
       );
@@ -45291,8 +45323,10 @@ function analyzeCreateTable(stmt, issues) {
 
     // 2. Identify Foreign Key references to suggest indexing
     if (def.resource === 'constraint' && def.constraint_type === 'FOREIGN KEY') {
-      const fkColumns = def.definition?.map((col) => col.column);
-      if (fkColumns && fkColumns.length > 0) {
+      const fkColumns = (def.definition || [])
+        .map((col) => getColumnName(col) || getColumnName(col?.column))
+        .filter(Boolean);
+      if (fkColumns.length > 0) {
         foreignKeysWithoutIndex.push(fkColumns.join(', '));
       }
     }
@@ -45334,9 +45368,10 @@ function analyzeSelectStatement(stmt, issues) {
         'Explicitly specify only required columns to reduce network payload and memory overhead.',
     });
   } else if (Array.isArray(stmt.columns)) {
-    const hasWildcard = stmt.columns.some(
-      (col) => col.expr?.type === 'column_ref' && col.expr?.column === '*',
-    );
+    const hasWildcard = stmt.columns.some((col) => {
+      const columnName = getColumnName(col.expr?.column) || getColumnName(col.expr);
+      return col.expr?.type === 'column_ref' && columnName === '*';
+    });
     if (hasWildcard) {
       issues.push({
         type: 'WILDCARD_SELECT',
@@ -45380,13 +45415,15 @@ function inspectWhereClause(whereNode, issues) {
 
     // Flag columns used in filter predicates for index consideration
     if (whereNode.left?.type === 'column_ref') {
-      const colName = whereNode.left.column;
-      issues.push({
-        type: 'FILTER_COLUMN_INDEX_CANDIDATE',
-        severity: 'INFO',
-        message: `Column "${colName}" is used as a filter predicate in the WHERE clause.`,
-        suggestion: `Ensure an index exists on "${colName}" if this query executes frequently on large datasets.`,
-      });
+      const colName = getColumnName(whereNode.left.column) || getColumnName(whereNode.left);
+      if (colName) {
+        issues.push({
+          type: 'FILTER_COLUMN_INDEX_CANDIDATE',
+          severity: 'INFO',
+          message: `Column "${colName}" is used as a filter predicate in the WHERE clause.`,
+          suggestion: `Ensure an index exists on "${colName}" if this query executes frequently on large datasets.`,
+        });
+      }
     }
 
     // Recurse left and right branches
@@ -45397,6 +45434,7 @@ function inspectWhereClause(whereNode, issues) {
 
 module.exports = {
   analyzeStaticSQL,
+  getColumnName,
 };
 
 
@@ -45414,8 +45452,10 @@ class MySQLAnalyzer {
   /**
    * Initializes the MySQL connection pool configuration.
    * @param {Object} config - Database connection options.
+   * @param {Object} [dependencies] - Optional test doubles.
+   * @param {Function} [dependencies.createPool] - Injected mysql2 createPool function.
    */
-  constructor(config) {
+  constructor(config, dependencies = {}) {
     this.config = {
       host: config.host || 'localhost',
       port: config.port || 3306,
@@ -45426,6 +45466,7 @@ class MySQLAnalyzer {
       connectionLimit: 5,
       queueLimit: 0,
     };
+    this.createPool = dependencies.createPool || mysql.createPool;
     this.pool = null;
   }
 
@@ -45434,7 +45475,7 @@ class MySQLAnalyzer {
    */
   getPool() {
     if (!this.pool) {
-      this.pool = mysql.createPool(this.config);
+      this.pool = this.createPool(this.config);
     }
     return this.pool;
   }
@@ -45630,18 +45671,22 @@ class PostgresAnalyzer {
   /**
    * Initializes the PostgreSQL connection pool.
    * @param {Object} config - Database connection options.
+   * @param {Object} [dependencies] - Optional test doubles.
+   * @param {import('pg').Pool} [dependencies.pool] - Injected pool instance.
    */
-  constructor(config) {
-    this.pool = new Pool({
-      host: config.host || 'localhost',
-      port: config.port || 5432,
-      database: config.database || 'test_db',
-      user: config.user || 'postgres',
-      password: config.password || 'root',
-      connectionTimeoutMillis: 5000,
-      idleTimeoutMillis: 10000,
-      max: 5,
-    });
+  constructor(config, dependencies = {}) {
+    this.pool =
+      dependencies.pool ||
+      new Pool({
+        host: config.host || 'localhost',
+        port: config.port || 5432,
+        database: config.database || 'test_db',
+        user: config.user || 'postgres',
+        password: config.password || 'root',
+        connectionTimeoutMillis: 5000,
+        idleTimeoutMillis: 10000,
+        max: 5,
+      });
   }
 
   /**
@@ -45924,6 +45969,126 @@ function generateMarkdownReport({ engine, sqlContent, staticIssues = [], dynamic
 module.exports = {
   generateMarkdownReport,
 };
+
+
+/***/ }),
+
+/***/ 5105:
+/***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
+
+/**
+ * Main orchestrator function for SQL Optima Action.
+ * @param {Object} [overrides] - Optional dependency overrides for unit tests.
+ */
+async function run(overrides = {}) {
+  const core = overrides.core || __nccwpck_require__(7484);
+  const github = overrides.github || __nccwpck_require__(3228);
+  const { analyzeStaticSQL } =
+    overrides.staticAnalyzer || __nccwpck_require__(6640);
+  const PostgresAnalyzer = overrides.PostgresAnalyzer || __nccwpck_require__(7353);
+  const MySQLAnalyzer = overrides.MySQLAnalyzer || __nccwpck_require__(678);
+  const { generateMarkdownReport } =
+    overrides.formatter || __nccwpck_require__(1696);
+
+  let dbAnalyzer = null;
+
+  try {
+    // 1. Extract inputs from GitHub Actions environment
+    let engine = core.getInput('engine') || 'postgres';
+    let sqlContent = core.getInput('sql_content');
+
+    // 2. Check for payload parameters if triggered via repository_dispatch (GitHub API)
+    const payload = github.context.payload.client_payload;
+    if (payload) {
+      engine = payload.engine || engine;
+      sqlContent = payload.sql_code || payload.sql_content || sqlContent;
+    }
+
+    // Validate that SQL content is available
+    if (!sqlContent || sqlContent.trim() === '') {
+      core.setFailed('No SQL content provided to analyze. Pass "sql_content" input or API payload.');
+      return;
+    }
+
+    engine = engine.toLowerCase();
+    core.info(`Starting SQL Optima analysis for engine: ${engine}`);
+
+    // 3. Execute Static AST Analysis
+    core.info('Running static AST analysis...');
+    const staticIssues = analyzeStaticSQL(sqlContent, engine);
+    core.info(`Static analysis complete. Found ${staticIssues.length} potential issue(s).`);
+
+    // 4. Configure Database connection options
+    const dbConfig = {
+      host: core.getInput('db_host') || 'localhost',
+      port: parseInt(core.getInput('db_port') || (engine === 'mysql' ? '3306' : '5432'), 10),
+      database: core.getInput('db_name') || 'test_db',
+      user: core.getInput('db_user') || (engine === 'mysql' ? 'root' : 'postgres'),
+      password: core.getInput('db_password') || 'root',
+    };
+
+    // 5. Select and initialize the DB analyzer engine
+    if (engine === 'postgres' || engine === 'postgresql') {
+      dbAnalyzer = new PostgresAnalyzer(dbConfig);
+    } else if (engine === 'mysql' || engine === 'mariadb') {
+      dbAnalyzer = new MySQLAnalyzer(dbConfig);
+    }
+
+    // 6. Execute Dynamic Analysis if a supported engine analyzer is available
+    let dynamicResult = { executed: false, issues: [] };
+
+    if (dbAnalyzer) {
+      try {
+        core.info(`Connecting to ${engine.toUpperCase()} database service...`);
+        await dbAnalyzer.testConnection();
+        core.info('Connection established. Executing EXPLAIN...');
+
+        dynamicResult = await dbAnalyzer.analyzeQuery(sqlContent);
+      } catch (dbError) {
+        core.warning(`Skipping dynamic analysis: ${dbError.message}`);
+        dynamicResult = {
+          executed: false,
+          error: dbError.message,
+          issues: [],
+        };
+      }
+    } else {
+      dynamicResult = {
+        executed: false,
+        reason: `Dynamic analysis for engine "${engine}" is not currently supported.`,
+        issues: [],
+      };
+    }
+
+    // 7. Generate Markdown Report
+    core.info('Generating markdown summary report...');
+    const markdownReport = generateMarkdownReport({
+      engine,
+      sqlContent,
+      staticIssues,
+      dynamicResult,
+    });
+
+    // 8. Output to GitHub Step Summary ($GITHUB_STEP_SUMMARY) and Action Outputs
+    await core.summary.addRaw(markdownReport).write();
+    core.setOutput('report', markdownReport);
+
+    core.info('SQL Optima analysis successfully completed and posted to Step Summary.');
+  } catch (error) {
+    core.setFailed(`SQL Optima Action failed: ${error.message}`);
+  } finally {
+    // Gracefully release Database connection pool
+    if (dbAnalyzer) {
+      await dbAnalyzer.close();
+    }
+  }
+}
+
+module.exports = { run };
+
+if (require.main === require.cache[eval('__filename')]) {
+  run();
+}
 
 
 /***/ }),
@@ -66867,115 +67032,13 @@ module.exports = /*#__PURE__*/JSON.parse('{"name":"mysql2","version":"3.24.4","d
 /******/ 	if (typeof __nccwpck_require__ !== 'undefined') __nccwpck_require__.ab = __dirname + "/";
 /******/ 	
 /************************************************************************/
-var __webpack_exports__ = {};
-const core = __nccwpck_require__(7484);
-const github = __nccwpck_require__(3228);
-const { analyzeStaticSQL } = __nccwpck_require__(6640);
-const PostgresAnalyzer = __nccwpck_require__(7353);
-const MySQLAnalyzer = __nccwpck_require__(678);
-const { generateMarkdownReport } = __nccwpck_require__(1696);
-
-/**
- * Main orchestrator function for SQL Optima Action.
- */
-async function run() {
-  let dbAnalyzer = null;
-
-  try {
-    // 1. Extract inputs from GitHub Actions environment
-    let engine = core.getInput('engine') || 'postgres';
-    let sqlContent = core.getInput('sql_content');
-
-    // 2. Check for payload parameters if triggered via repository_dispatch (GitHub API)
-    const payload = github.context.payload.client_payload;
-    if (payload) {
-      engine = payload.engine || engine;
-      sqlContent = payload.sql_code || payload.sql_content || sqlContent;
-    }
-
-    // Validate that SQL content is available
-    if (!sqlContent || sqlContent.trim() === '') {
-      core.setFailed('No SQL content provided to analyze. Pass "sql_content" input or API payload.');
-      return;
-    }
-
-    engine = engine.toLowerCase();
-    core.info(`Starting SQL Optima analysis for engine: ${engine}`);
-
-    // 3. Execute Static AST Analysis
-    core.info('Running static AST analysis...');
-    const staticIssues = analyzeStaticSQL(sqlContent, engine);
-    core.info(`Static analysis complete. Found ${staticIssues.length} potential issue(s).`);
-
-    // 4. Configure Database connection options
-    const dbConfig = {
-      host: core.getInput('db_host') || 'localhost',
-      port: parseInt(core.getInput('db_port') || (engine === 'mysql' ? '3306' : '5432'), 10),
-      database: core.getInput('db_name') || 'test_db',
-      user: core.getInput('db_user') || (engine === 'mysql' ? 'root' : 'postgres'),
-      password: core.getInput('db_password') || 'root',
-    };
-
-    // 5. Select and initialize the DB analyzer engine
-    if (engine === 'postgres' || engine === 'postgresql') {
-      dbAnalyzer = new PostgresAnalyzer(dbConfig);
-    } else if (engine === 'mysql' || engine === 'mariadb') {
-      dbAnalyzer = new MySQLAnalyzer(dbConfig);
-    }
-
-    // 6. Execute Dynamic Analysis if a supported engine analyzer is available
-    let dynamicResult = { executed: false, issues: [] };
-
-    if (dbAnalyzer) {
-      try {
-        core.info(`Connecting to ${engine.toUpperCase()} database service...`);
-        await dbAnalyzer.testConnection();
-        core.info('Connection established. Executing EXPLAIN...');
-
-        dynamicResult = await dbAnalyzer.analyzeQuery(sqlContent);
-      } catch (dbError) {
-        core.warning(`Skipping dynamic analysis: ${dbError.message}`);
-        dynamicResult = {
-          executed: false,
-          error: dbError.message,
-          issues: [],
-        };
-      }
-    } else {
-      dynamicResult = {
-        executed: false,
-        reason: `Dynamic analysis for engine "${engine}" is not currently supported.`,
-        issues: [],
-      };
-    }
-
-    // 7. Generate Markdown Report
-    core.info('Generating markdown summary report...');
-    const markdownReport = generateMarkdownReport({
-      engine,
-      sqlContent,
-      staticIssues,
-      dynamicResult,
-    });
-
-    // 8. Output to GitHub Step Summary ($GITHUB_STEP_SUMMARY) and Action Outputs
-    await core.summary.addRaw(markdownReport).write();
-    core.setOutput('report', markdownReport);
-
-    core.info('SQL Optima analysis successfully completed and posted to Step Summary.');
-  } catch (error) {
-    core.setFailed(`SQL Optima Action failed: ${error.message}`);
-  } finally {
-    // Gracefully release Database connection pool
-    if (dbAnalyzer) {
-      await dbAnalyzer.close();
-    }
-  }
-}
-
-run();
-
-module.exports = __webpack_exports__;
+/******/ 	
+/******/ 	// startup
+/******/ 	// Load entry module and return exports
+/******/ 	// This entry module is referenced by other modules so it can't be inlined
+/******/ 	var __webpack_exports__ = __nccwpck_require__(5105);
+/******/ 	module.exports = __webpack_exports__;
+/******/ 	
 /******/ })()
 ;
 //# sourceMappingURL=index.js.map
