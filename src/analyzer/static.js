@@ -51,6 +51,34 @@ function analyzeStaticSQL(sqlContent, engine = 'postgres') {
 }
 
 /**
+ * Normalizes node-sql-parser column identifiers to a plain string.
+ * @param {unknown} column
+ * @returns {string|null}
+ */
+function getColumnName(column) {
+  if (typeof column === 'string') {
+    return column;
+  }
+
+  if (column && typeof column === 'object') {
+    if (typeof column.expr?.value === 'string') {
+      return column.expr.value;
+    }
+    if (typeof column.value === 'string') {
+      return column.value;
+    }
+    if (typeof column.column === 'string') {
+      return column.column;
+    }
+    if (typeof column.column?.expr?.value === 'string') {
+      return column.column.expr.value;
+    }
+  }
+
+  return null;
+}
+
+/**
  * Inspects CREATE TABLE statements for structural best practices.
  */
 function analyzeCreateTable(stmt, issues) {
@@ -62,11 +90,15 @@ function analyzeCreateTable(stmt, issues) {
 
   definitions.forEach((def) => {
     // 1. Check for Primary Keys defined as column constraints or table constraints
-    if (def.resource === 'constraint' && def.constraint_type === 'primary key') {
+    if (def.resource === 'constraint' && def.constraint_type?.toLowerCase() === 'primary key') {
       hasPrimaryKey = true;
     }
 
     if (def.resource === 'column') {
+      if (typeof def.primary_key === 'string' && def.primary_key.toLowerCase().includes('primary')) {
+        hasPrimaryKey = true;
+      }
+
       const isPkColumn = def.definition?.constraints?.some(
         (c) => c.constraint_type?.toLowerCase() === 'primary key',
       );
@@ -77,8 +109,10 @@ function analyzeCreateTable(stmt, issues) {
 
     // 2. Identify Foreign Key references to suggest indexing
     if (def.resource === 'constraint' && def.constraint_type === 'FOREIGN KEY') {
-      const fkColumns = def.definition?.map((col) => col.column);
-      if (fkColumns && fkColumns.length > 0) {
+      const fkColumns = (def.definition || [])
+        .map((col) => getColumnName(col) || getColumnName(col?.column))
+        .filter(Boolean);
+      if (fkColumns.length > 0) {
         foreignKeysWithoutIndex.push(fkColumns.join(', '));
       }
     }
@@ -120,9 +154,10 @@ function analyzeSelectStatement(stmt, issues) {
         'Explicitly specify only required columns to reduce network payload and memory overhead.',
     });
   } else if (Array.isArray(stmt.columns)) {
-    const hasWildcard = stmt.columns.some(
-      (col) => col.expr?.type === 'column_ref' && col.expr?.column === '*',
-    );
+    const hasWildcard = stmt.columns.some((col) => {
+      const columnName = getColumnName(col.expr?.column) || getColumnName(col.expr);
+      return col.expr?.type === 'column_ref' && columnName === '*';
+    });
     if (hasWildcard) {
       issues.push({
         type: 'WILDCARD_SELECT',
@@ -166,13 +201,15 @@ function inspectWhereClause(whereNode, issues) {
 
     // Flag columns used in filter predicates for index consideration
     if (whereNode.left?.type === 'column_ref') {
-      const colName = whereNode.left.column;
-      issues.push({
-        type: 'FILTER_COLUMN_INDEX_CANDIDATE',
-        severity: 'INFO',
-        message: `Column "${colName}" is used as a filter predicate in the WHERE clause.`,
-        suggestion: `Ensure an index exists on "${colName}" if this query executes frequently on large datasets.`,
-      });
+      const colName = getColumnName(whereNode.left.column) || getColumnName(whereNode.left);
+      if (colName) {
+        issues.push({
+          type: 'FILTER_COLUMN_INDEX_CANDIDATE',
+          severity: 'INFO',
+          message: `Column "${colName}" is used as a filter predicate in the WHERE clause.`,
+          suggestion: `Ensure an index exists on "${colName}" if this query executes frequently on large datasets.`,
+        });
+      }
     }
 
     // Recurse left and right branches
@@ -183,4 +220,5 @@ function inspectWhereClause(whereNode, issues) {
 
 module.exports = {
   analyzeStaticSQL,
+  getColumnName,
 };
