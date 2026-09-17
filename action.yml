@@ -1,0 +1,44 @@
+name: 'SQL Optima Action'
+description: 'Automated SQL parser, schema linter, and dynamic query execution analyzer'
+author: 'ale94lko'
+
+inputs:
+  engine:
+    description: 'Database engine (postgres | mysql)'
+    required: false
+    default: 'postgres'
+  sql_content:
+    description: 'SQL code or script to analyze'
+    required: false
+  db_host:
+    description: 'Database host'
+    required: false
+    default: 'localhost'
+  db_port:
+    description: 'Database port'
+    required: false
+    default: '5432'
+  db_name:
+    description: 'Database name'
+    required: false
+    default: 'test_db'
+  db_user:
+    description: 'Database user'
+    required: false
+    default: 'postgres'
+  db_password:
+    description: 'Database password'
+    required: false
+    default: 'root'
+
+outputs:
+  report:
+    description: 'Generated Markdown report containing optimization suggestions'
+
+runs:
+  using: 'node20'
+  main: 'dist/index.js'
+
+branding:
+  icon: 'database'
+  color: 'blue'
