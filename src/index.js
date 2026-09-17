@@ -1,14 +1,17 @@
-const core = require('@actions/core');
-const github = require('@actions/github');
-const { analyzeStaticSQL } = require('./analyzer/static');
-const PostgresAnalyzer = require('./db/postgres');
-const MySQLAnalyzer = require('./db/mysql');
-const { generateMarkdownReport } = require('./formatter');
-
 /**
  * Main orchestrator function for SQL Optima Action.
+ * @param {Object} [overrides] - Optional dependency overrides for unit tests.
  */
-async function run() {
+async function run(overrides = {}) {
+  const core = overrides.core || require('@actions/core');
+  const github = overrides.github || require('@actions/github');
+  const { analyzeStaticSQL } =
+    overrides.staticAnalyzer || require('./analyzer/static');
+  const PostgresAnalyzer = overrides.PostgresAnalyzer || require('./db/postgres');
+  const MySQLAnalyzer = overrides.MySQLAnalyzer || require('./db/mysql');
+  const { generateMarkdownReport } =
+    overrides.formatter || require('./formatter');
+
   let dbAnalyzer = null;
 
   try {
@@ -103,4 +106,8 @@ async function run() {
   }
 }
 
-run();
+module.exports = { run };
+
+if (require.main === module) {
+  run();
+}

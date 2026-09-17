@@ -7,18 +7,22 @@ class PostgresAnalyzer {
   /**
    * Initializes the PostgreSQL connection pool.
    * @param {Object} config - Database connection options.
+   * @param {Object} [dependencies] - Optional test doubles.
+   * @param {import('pg').Pool} [dependencies.pool] - Injected pool instance.
    */
-  constructor(config) {
-    this.pool = new Pool({
-      host: config.host || 'localhost',
-      port: config.port || 5432,
-      database: config.database || 'test_db',
-      user: config.user || 'postgres',
-      password: config.password || 'root',
-      connectionTimeoutMillis: 5000,
-      idleTimeoutMillis: 10000,
-      max: 5,
-    });
+  constructor(config, dependencies = {}) {
+    this.pool =
+      dependencies.pool ||
+      new Pool({
+        host: config.host || 'localhost',
+        port: config.port || 5432,
+        database: config.database || 'test_db',
+        user: config.user || 'postgres',
+        password: config.password || 'root',
+        connectionTimeoutMillis: 5000,
+        idleTimeoutMillis: 10000,
+        max: 5,
+      });
   }
 
   /**

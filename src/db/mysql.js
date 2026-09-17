@@ -7,8 +7,10 @@ class MySQLAnalyzer {
   /**
    * Initializes the MySQL connection pool configuration.
    * @param {Object} config - Database connection options.
+   * @param {Object} [dependencies] - Optional test doubles.
+   * @param {Function} [dependencies.createPool] - Injected mysql2 createPool function.
    */
-  constructor(config) {
+  constructor(config, dependencies = {}) {
     this.config = {
       host: config.host || 'localhost',
       port: config.port || 3306,
@@ -19,6 +21,7 @@ class MySQLAnalyzer {
       connectionLimit: 5,
       queueLimit: 0,
     };
+    this.createPool = dependencies.createPool || mysql.createPool;
     this.pool = null;
   }
 
@@ -27,7 +30,7 @@ class MySQLAnalyzer {
    */
   getPool() {
     if (!this.pool) {
-      this.pool = mysql.createPool(this.config);
+      this.pool = this.createPool(this.config);
     }
     return this.pool;
   }
