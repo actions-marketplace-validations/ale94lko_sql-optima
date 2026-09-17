@@ -1,7 +1,8 @@
 # SQL Optima Action
 
+[![Health Score](https://raw.githubusercontent.com/ale94lko/sql-optima/output/badge.svg)](https://github.com/ale94lko/sql-optima/community)
 [![GitHub Marketplace](https://img.shields.io/badge/Marketplace-SQL%20Optima%20Action-blue?style=flat-square&logo=github)](https://github.com/marketplace/actions/sql-optima-action)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](https://opensource.org/licenses/MIT)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](LICENSE)
 [![Node.js CI](https://img.shields.io/badge/node.js-20.x-green?style=flat-square&logo=node.js)](https://nodejs.org/)
 
 An automated **SQL performance analyzer, schema linter, and query execution optimizer** built for GitHub Actions.
@@ -175,6 +176,14 @@ npm run build
 ```
 
 ---
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, tests, and pull request guidelines. Please follow the [Code of Conduct](.github/CODE_OF_CONDUCT.md).
+
+## Security
+
+Report vulnerabilities privately as described in [SECURITY.md](SECURITY.md).
 
 ## License
 
