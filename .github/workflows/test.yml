@@ -45,6 +45,7 @@ jobs:
       - name: Install dependencies and build dist
         run: |
           npm ci
+          npm run test:coverage
           npm run build
 
       # Step 1: Initialize dummy tables in PostgreSQL service
