@@ -80,8 +80,10 @@ out
 
 # Nuxt.js build / generate output
 .nuxt
-dist
 .output
+
+# Keep the ncc-compiled Action bundle committed for consumers
+# (do not ignore /dist)
 
 # Gatsby files
 .cache/
