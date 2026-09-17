@@ -166,6 +166,10 @@ cd sql-optima
 # Install dependencies
 npm install
 
+# Run unit tests with coverage thresholds
+npm test
+npm run test:coverage
+
 # Compile source files into dist/index.js
 npm run build
 ```
