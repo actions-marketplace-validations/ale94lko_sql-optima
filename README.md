@@ -46,6 +46,8 @@ More engines, inputs, and samples: see [Usage Examples](#usage-examples) below. 
 
 ## Versioning (Marketplace)
 
+Latest release: **[v1.1.0](https://github.com/ale94lko/sql-optima/releases/tag/v1.1.0)** — see [CHANGELOG.md](CHANGELOG.md).
+
 Consumers should pin a floating major tag for convenience:
 
 ```yaml
