@@ -86,7 +86,8 @@ PR and `main` pushes run [`.github/workflows/ci.yml`](.github/workflows/ci.yml):
 | `build` | `ncc` bundle + assert committed `dist/` is current |
 | `lint` | ESLint (`npm run lint`) + `npm audit --audit-level=high` + [actionlint](https://github.com/rhysd/actionlint) for workflows |
 | `typecheck` | `npm run typecheck` — TypeScript `checkJs` on `src/**/*.js` (JSDoc); fails on type drift |
-| `integration-*` | Live Action runs against Postgres, MySQL, MariaDB, SQLite, SQL Server, and static BigQuery/Snowflake samples |
+| `integration` | Live Postgres + MySQL + SQL Server service containers; `scripts/run-integration.js` fails if mixed fixtures produce `issue_count=0` |
+| `integration-*` | Per-engine Action runs against Postgres, MySQL, MariaDB, SQLite, SQL Server, and static BigQuery/Snowflake samples |
 
 Security / supply-chain (separate workflows):
 

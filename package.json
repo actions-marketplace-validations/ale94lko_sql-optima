@@ -34,7 +34,8 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit -p jsconfig.json",
     "test": "vitest run",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "integration": "node scripts/run-integration.js"
   },
   "dependencies": {
     "@actions/core": "^2.0.3",
